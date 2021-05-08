@@ -19,5 +19,5 @@
   "last_feature_num": 48,
   "cnn_nbhd_size": 3,
   "nbhd_size": 2,
-  "flow_type": 4,
+  "flow_type": 4
 }

@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import pandas as pd
 
 from trafficdl.data.dataset import TrafficStateDataset, TrafficStateGridDataset, TrafficStateGridOdDataset
 from trafficdl.data.utils import generate_dataloader
@@ -62,7 +63,46 @@ class STDNDataset(TrafficStateDataset):
         Returns:
             np.ndarray: 数据数组, 6d-array: (len_time, len_row, len_column, len_row, len_column, feature_dim)
         """
-        return super()._load_grid_od_6d(filename)
+        gridodfile = pd.read_csv(self.data_path + filename + '.gridod')
+        # if self.data_col != '':  # 根据指定的列加载数据集
+        #     if isinstance(self.data_col, list):
+        #         data_col = self.data_col.copy()
+        #     else:  # str
+        #         data_col = [self.data_col.copy()]
+        #     data_col.insert(0, 'time')
+        #     data_col.insert(1, 'origin_row_id')
+        #     data_col.insert(2, 'origin_column_id')
+        #     data_col.insert(3, 'destination_row_id')
+        #     data_col.insert(4, 'destination_column_id')
+        #     gridodfile = gridodfile[data_col]
+        # else:  # 不指定则加载所有列
+        #     gridodfile = gridodfile[gridodfile.columns[2:]]  # 从time列开始所有列
+        gridodfile = gridodfile[gridodfile.columns[2:]]
+        # 求时间序列
+        self.timesolts = list(gridodfile['time'][:int(gridodfile.shape[0] / len(self.geo_ids) / len(self.geo_ids))])
+        self.idx_of_timesolts = dict()
+        if not gridodfile['time'].isna().any():  # 时间没有空值
+            self.timesolts = list(map(lambda x: x.replace('T', ' ').replace('Z', ''), self.timesolts))
+            self.timesolts = np.array(self.timesolts, dtype='datetime64[ns]')
+            for idx, _ts in enumerate(self.timesolts):
+                self.idx_of_timesolts[_ts] = idx
+        # 转6-d数组
+        feature_dim = len(gridodfile.columns) - 5
+        df = gridodfile[gridodfile.columns[-feature_dim:]]
+        len_time = len(self.timesolts)
+        data = np.zeros((self.len_row, self.len_column, self.len_row, self.len_column, len_time, feature_dim))
+        for oi in range(self.len_row):
+            for oj in range(self.len_column):
+                origin_index = (oi * self.len_column + oj) * len_time * len(self.geo_ids)  # 每个起点占据len_t*n行
+                for di in range(self.len_row):
+                    for dj in range(self.len_column):
+                        destination_index = (di * self.len_column + dj) * len_time  # 每个终点占据len_t行
+                        index = origin_index + destination_index
+                        # print(index, index + len_time)
+                        data[oi][oj][di][dj] = df[index:index + len_time].values
+        data = data.transpose((4, 0, 1, 2, 3, 5))  # (len_time, len_row, len_column, len_row, len_column, feature_dim)
+        self._logger.info("Loaded file " + filename + '.gridod' + ', shape=' + str(data.shape))
+        return data
 
     def _sample_stdn(self, volume_df, flow_df):
         cnn_att_features = []
@@ -141,7 +181,7 @@ class STDNDataset(TrafficStateDataset):
                                 if not (0 <= nbhd_x < self.len_row and 0 <= nbhd_y < self.len_column):
                                     continue
                                 nbhd_feature[nbhd_x - (x - self.nbhd_size), nbhd_y - (y - self.nbhd_size),
-                                :] = self.volume_df[real_t, nbhd_x, nbhd_y, :]
+                                :] = volume_df[real_t, nbhd_x, nbhd_y, :]
                         nbhd_feature = nbhd_feature.flatten()
                         feature_vec = np.concatenate((hist_feature, last_feature))
                         feature_vec = np.concatenate((feature_vec, nbhd_feature))
@@ -204,8 +244,8 @@ class STDNDataset(TrafficStateDataset):
 
                     for seqn in range(self.input_window):
                         real_t = t - (self.input_window - seqn)
-                        inputs[t - time_start, seqn, x, y, :] = volume_df[real_t, seqn, x, y, :]
-                    labels[t - time_start, 0, x, y, :] = volume_df[t, 0, x, y, :]
+                        inputs[t - time_start, seqn, x, y, :] = volume_df[real_t, x, y, :]
+                    labels[t - time_start, 0, x, y, :] = volume_df[t, x, y, :]
 
         output_cnn_att_features = []
         output_flow_att_features = []
@@ -286,7 +326,7 @@ class STDNDataset(TrafficStateDataset):
 
     def _generate_data(self):
         volume_df = self._load_grid(self.data_files[0])
-        flow_df = self._load_gridod(self.data_files[1])
+        flow_df = self._load_gridod(self.data_files[0])
 
         x_list = []
         y_list = []
