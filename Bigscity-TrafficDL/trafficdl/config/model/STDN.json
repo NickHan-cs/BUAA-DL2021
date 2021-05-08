@@ -1,0 +1,21 @@
+{
+  "cnn_flat_size": 128,
+  "lstm_out_size": 128,
+  "threshold": 10,
+
+  "scaler": "normal",
+  "load_external": false,
+  "normal_external": false,
+  "add_time_in_day": false,
+  "add_day_in_week": false,
+  "train_rate": 0.7,
+  "eval_rate": 0.1,
+
+  "max_epoch": 55,
+  "learner": "adagrad",
+  "learning_rate": 0.01,
+  "lr_decay": false,
+  "clip_grad_norm": false,
+  "use_early_stop": false,
+  "patience": 5
+}
